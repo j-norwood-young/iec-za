@@ -1,0 +1,4 @@
+IEC_USERNAME="iec"
+IEC_PASSWORD="iec"
+IEC_URL="https://api.elections.org.za"
+EVENT_ID=699
