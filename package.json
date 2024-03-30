@@ -1,10 +1,11 @@
 {
   "name": "iec-za",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "A Typescript module to retrieve data from the Independent Electoral Commission of South Africa's API",
   "main": "iec.ts",
   "scripts": {
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "build": "tsc"
   },
   "keywords": [
     "IEC",
