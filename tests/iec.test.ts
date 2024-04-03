@@ -12,8 +12,9 @@ const iec = new IEC();
 // beforeAll(async () =>{
 //     await iec.login();
 // });
+import type {IECTokenResponse} from "../src/iec";
 
-let token: any;
+let token: IECTokenResponse;
 let electionType: number;
 let electoralEvent: number;
 let province: number;
@@ -36,7 +37,7 @@ test('IEC.login', async () => {
 })
 
 test('IEC.login with token', async () => {
-    const new_token: any = await iec.login(token);
+    const new_token: IECTokenResponse = await iec.login(token);
     expect(token).toBeDefined();
     expect(new_token.access_token).toBe(token.access_token);
 })

@@ -1,10 +1,11 @@
-
-
-import fetch from "node-fetch";
 import dotenv from "dotenv";
 dotenv.config();
 
-type IECTokenResponse = {
+export type IECResponse = {
+    Message?: string;
+}
+
+export type IECTokenResponse = {
     access_token: string;
     token_type: string;
     expires_in: number;
@@ -15,24 +16,24 @@ type IECTokenResponse = {
     error?: string;
 }
 
-type IECElectoralEventTypeResponse = {
+export type IECElectoralEventTypeResponse = {
     ID: number;
     Description: string;
 }
 
-type IECElectoralEventResponse = {
+export type IECElectoralEventResponse = {
     ID: number;
     Description: string;
     IsActive: boolean;
 }
 
-type IECResultsProgressResponse = {
+export type IECResultsProgressResponse = {
     VDResultsIn: number;
     VDTotal: number;
     SeatCalculationCompleted: boolean;
 }
 
-type IECPartyBallotResultsResponse = {
+export type IECPartyBallotResultsResponse = {
     ID: number;
     Name: string;
     ValidVotes: number;
@@ -40,7 +41,7 @@ type IECPartyBallotResultsResponse = {
     PartyAbbr: string;
 }
 
-type IECNPEBallotResultsResponse = {
+export type IECNPEBallotResultsResponse = {
     ElectoralEventID: number;
     ElectoralEvent: string;
     RegisteredVoters: number;
@@ -56,50 +57,50 @@ type IECNPEBallotResultsResponse = {
     PartyBallotResults: IECPartyBallotResultsResponse[];
 }
 
-type IECNPEBallotResultsProvinceResponse = IECNPEBallotResultsResponse & {
+export type IECNPEBallotResultsProvinceResponse = IECNPEBallotResultsResponse & {
     ProvinceID: number;
     Province: string;
 }
 
-type IECNPEBallotResultsMunicipalityResponse = IECNPEBallotResultsProvinceResponse & {
+export type IECNPEBallotResultsMunicipalityResponse = IECNPEBallotResultsProvinceResponse & {
     MunicipalityID: number;
     Municipality: string;
 }
 
-type IECNPEBallotResultsVotingDistrictResponse = IECNPEBallotResultsMunicipalityResponse & {
+export type IECNPEBallotResultsVotingDistrictResponse = IECNPEBallotResultsMunicipalityResponse & {
     VDNumber: number;
 }
 
-type IECContenstingPartiesResponse = {
+export type IECContenstingPartiesResponse = {
     ID: number;
     Name: string;
     LogoUrl: string;
     Abbreviation: string;
 }
 
-type IECDelimitationResponse = [{
+export type IECDelimitationResponse = [{
     ProvinceID: number;
     Province: string;
 }]
 
-type IECDelimitationProvinceResponse = [{
+export type IECDelimitationProvinceResponse = [{
     ProvinceID: number;
     MunicipalityID: number;
     Municipality: string;
     MunicTypeID: number;
 }]
 
-type IECDelimitationMunicipalityResponse = [{
+export type IECDelimitationMunicipalityResponse = [{
     ProvinceID: number;
     MunicipalityID: number;
     WardID: number;
 }]
 
-type IECDelimitationWardResponse = IECDelimitationMunicipalityResponse & [{
+export type IECDelimitationWardResponse = IECDelimitationMunicipalityResponse & [{
     VDNumber: number;
 }]
 
-type IECDelimitationLatLongResponse = {
+export type IECDelimitationLatLongResponse = {
     ProvinceID: number;
     Province: string;
     MunicipalityID: number;
@@ -108,7 +109,7 @@ type IECDelimitationLatLongResponse = {
     VDNumber: number;
 }
 
-type IECNPESeatCalculationResultsResponse = {
+export type IECNPESeatCalculationResultsResponse = {
     ElectoralEventID: number;
     ElectoralEvent: string;
     PartyResults: [{
@@ -120,7 +121,7 @@ type IECNPESeatCalculationResultsResponse = {
     }]
 }
 
-type IECNPECandidatesResponse = [{
+export type IECNPECandidatesResponse = [{
     Rank: number;
     ID: number;
     Firstname: string;
@@ -131,7 +132,7 @@ type IECNPECandidatesResponse = [{
     PartyAbbr: string;
 }]
 
-type IECNPESeatAllocationResultsResponse = [{
+export type IECNPESeatAllocationResultsResponse = [{
     Rank: number;
     ID: number;
     Firstname: string;
@@ -208,7 +209,7 @@ export class IEC {
                 'Authorization': `Bearer ${this._token['access_token']}`
             }
         })
-        .then(response => response.json() as any)
+        .then(response => response.json() as IECResponse)
         .catch(error => {
             throw error;
         });
