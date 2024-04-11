@@ -121,6 +121,18 @@ export type IECNPESeatCalculationResultsResponse = {
     }]
 }
 
+export type IECNPESeatCalculationResultsProvinceResponse = {
+    ElectoralEventID: number;
+    ElectoralEvent: string;
+    ProvinceID: number;
+    Province: string;
+    PartyResults: [{
+        ID: number;
+        Name: string;
+        NumberOfSeats: number;
+    }]
+}
+
 export type IECNPECandidatesResponse = [{
     Rank: number;
     ID: number;
@@ -203,7 +215,7 @@ export class IEC {
             throw new Error("Not logged in");
         }
         const url = `${this.url}/api/${this.version}/${endpoint}`;
-        console.log(url);
+        // console.log(url);
         const result = await fetch(url, {
             headers: {
                 'Authorization': `Bearer ${this._token['access_token']}`
@@ -214,6 +226,7 @@ export class IEC {
             throw error;
         });
         if (result.Message) {
+            console.error(`Error: ${result.Message}`)
             throw new Error(result.Message);
         }
         return result;
@@ -261,6 +274,10 @@ export class IEC {
 
     async NPESeatCalculationResults(ElectoralEventID: number) {
         return this.get(`NPESeatCalculationResults?ElectoralEventID=${ElectoralEventID}`) as Promise<IECNPESeatCalculationResultsResponse>;
+    }
+
+    async NPESeatCalculationResultsProvince(ElectoralEventID: number, ProvinceID: number) {
+        return this.get(`NPESeatCalculationResults?ElectoralEventID=${ElectoralEventID}&ProvinceID=${ProvinceID}`) as Promise<IECNPESeatCalculationResultsProvinceResponse>;
     }
 
     async NPESeatAllocationResults(ElectoralEventID: number, PartyID: number) {

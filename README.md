@@ -158,6 +158,11 @@ For more information on the methods, please refer to the [IEC API documentation]
 - Retrieves the NPE seat calculation results.
 - Returns an array of NPE seat calculation results by party (PartyResults).
 
+### `NPESeatCalculationResultsProvince(electoralEventId, provinceId)`
+
+- Retrieves the NPE seat calculation results for a province.
+- Returns an array of NPE seat calculation results for provincial legislature.
+
 ### `NPESeatAllocationResults(electoralEventId, partyId)`
 
 - Retrieves the NPE seat allocation results for a party.

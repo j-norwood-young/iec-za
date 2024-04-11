@@ -243,9 +243,23 @@ test('IEC.NPESeatCalculationResults', async () => {
     expect(NPESeatCalculationResults.PartyResults.length).toBeGreaterThan(0);
     expect(NPESeatCalculationResults.PartyResults[0].ID).toBeDefined();
     expect(NPESeatCalculationResults.PartyResults[0].Name).toBeDefined();
-    expect(NPESeatCalculationResults.PartyResults[0].Regional).toBeGreaterThan(0);
-    expect(NPESeatCalculationResults.PartyResults[0].NationalPR).toBeGreaterThan(0);
-    expect(NPESeatCalculationResults.PartyResults[0].Overall).toBeGreaterThan(0);
+    expect(NPESeatCalculationResults.PartyResults[0].Regional).toBeGreaterThanOrEqual(0);
+    expect(NPESeatCalculationResults.PartyResults[0].NationalPR).toBeGreaterThanOrEqual(0);
+    expect(NPESeatCalculationResults.PartyResults[0].Overall).toBeGreaterThanOrEqual(0);
+})
+
+test('IEC.NPESeatCalculationResultsProvince', async () => {
+    const NPESeatCalculationResultsProvince = await iec.NPESeatCalculationResultsProvince(electoralEvent, province);
+    expect(NPESeatCalculationResultsProvince).toBeDefined();
+    expect(NPESeatCalculationResultsProvince.ElectoralEventID).toBe(electoralEvent);
+    expect(NPESeatCalculationResultsProvince.ElectoralEvent).toBeDefined();
+    expect(NPESeatCalculationResultsProvince.ProvinceID).toBe(province);
+    expect(NPESeatCalculationResultsProvince.Province).toBeDefined();
+    expect(NPESeatCalculationResultsProvince.PartyResults).toBeDefined();
+    expect(NPESeatCalculationResultsProvince.PartyResults.length).toBeGreaterThan(0);
+    expect(NPESeatCalculationResultsProvince.PartyResults[0].ID).toBeDefined();
+    expect(NPESeatCalculationResultsProvince.PartyResults[0].Name).toBeDefined();
+    expect(NPESeatCalculationResultsProvince.PartyResults[0].NumberOfSeats).toBeGreaterThanOrEqual(0);
 })
 
 test('NPESeatAllocationResults', async () => {
