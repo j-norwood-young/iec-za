@@ -1,18 +1,7 @@
 import {IEC} from "../src/iec";
-// import dotenv from "dotenv";
-// dotenv.config();
-
-// const username = process.env.IEC_USERNAME;
-// const password = process.env.IEC_PASSWORD;
-// if (!username || !password) {
-//     throw new Error("Please set IEC_USERNAME and IEC_PASSWORD in .env file");
-// }
-// Connect to IEC
-const iec = new IEC();
-// beforeAll(async () =>{
-//     await iec.login();
-// });
 import type {IECTokenResponse} from "../src/iec";
+
+const iec = new IEC();
 
 let token: IECTokenResponse;
 let electionType: number;

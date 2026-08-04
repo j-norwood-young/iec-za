@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-dotenv.config();
+dotenv.config({ quiet: true });
 
 export type IECResponse = {
     Message?: string;
@@ -71,34 +71,45 @@ export type IECNPEBallotResultsVotingDistrictResponse = IECNPEBallotResultsMunic
     VDNumber: number;
 }
 
-export type IECContenstingPartiesResponse = {
+export type IECContestingPartiesResponse = {
     ID: number;
     Name: string;
     LogoUrl: string;
     Abbreviation: string;
 }
 
-export type IECDelimitationResponse = [{
+/** @deprecated Use IECContestingPartiesResponse */
+export type IECContenstingPartiesResponse = IECContestingPartiesResponse;
+
+export type IECDelimitationProvince = {
     ProvinceID: number;
     Province: string;
-}]
+}
 
-export type IECDelimitationProvinceResponse = [{
+export type IECDelimitationResponse = IECDelimitationProvince[];
+
+export type IECDelimitationMunicipality = {
     ProvinceID: number;
     MunicipalityID: number;
     Municipality: string;
     MunicTypeID: number;
-}]
+}
 
-export type IECDelimitationMunicipalityResponse = [{
+export type IECDelimitationProvinceResponse = IECDelimitationMunicipality[];
+
+export type IECDelimitationWard = {
     ProvinceID: number;
     MunicipalityID: number;
     WardID: number;
-}]
+}
 
-export type IECDelimitationWardResponse = IECDelimitationMunicipalityResponse & [{
+export type IECDelimitationMunicipalityResponse = IECDelimitationWard[];
+
+export type IECDelimitationVotingDistrict = IECDelimitationWard & {
     VDNumber: number;
-}]
+}
+
+export type IECDelimitationWardResponse = IECDelimitationVotingDistrict[];
 
 export type IECDelimitationLatLongResponse = {
     ProvinceID: number;
@@ -109,16 +120,24 @@ export type IECDelimitationLatLongResponse = {
     VDNumber: number;
 }
 
+export type IECPartySeatResult = {
+    ID: number;
+    Name: string;
+    Regional: number;
+    NationalPR: number;
+    Overall: number;
+}
+
 export type IECNPESeatCalculationResultsResponse = {
     ElectoralEventID: number;
     ElectoralEvent: string;
-    PartyResults: [{
-        ID: number;
-        Name: string;
-        Regional: number;
-        NationalPR: number;
-        Overall: number;
-    }]
+    PartyResults: IECPartySeatResult[];
+}
+
+export type IECProvincePartySeatResult = {
+    ID: number;
+    Name: string;
+    NumberOfSeats: number;
 }
 
 export type IECNPESeatCalculationResultsProvinceResponse = {
@@ -126,14 +145,10 @@ export type IECNPESeatCalculationResultsProvinceResponse = {
     ElectoralEvent: string;
     ProvinceID: number;
     Province: string;
-    PartyResults: [{
-        ID: number;
-        Name: string;
-        NumberOfSeats: number;
-    }]
+    PartyResults: IECProvincePartySeatResult[];
 }
 
-export type IECNPECandidatesResponse = [{
+export type IECNPECandidate = {
     Rank: number;
     ID: number;
     Firstname: string;
@@ -142,15 +157,19 @@ export type IECNPECandidatesResponse = [{
     ProvinceID: number;
     Province: string;
     PartyAbbr: string;
-}]
+}
 
-export type IECNPESeatAllocationResultsResponse = [{
+export type IECNPECandidatesResponse = IECNPECandidate[];
+
+export type IECNPESeatAllocation = {
     Rank: number;
     ID: number;
     Firstname: string;
     Surname: string;
-}]
-    
+}
+
+export type IECNPESeatAllocationResultsResponse = IECNPESeatAllocation[];
+
 export class IEC {
     url: string;
     username: string;
@@ -160,7 +179,7 @@ export class IEC {
     version: string;
 
     constructor({ username, password, url, version}: { username?: string, password?: string, url?: string, version?: string } = {}) {
-        this.url = url || "https://api.elections.org.za";
+        this.url = url || process.env.IEC_URL || "https://api.elections.org.za";
         this.version = version || "v1";
         if (!username && process.env.IEC_USERNAME) {
             username = process.env.IEC_USERNAME;
@@ -184,7 +203,7 @@ export class IEC {
                 return this._token;
             }
         }
-        this._token = await fetch(`${this.url}/token`, {
+        const response = await fetch(`${this.url}/token`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -194,12 +213,11 @@ export class IEC {
                 username: this.username, 
                 password: this.password 
             })
-        })
-        .then(response => response.json() as Promise<IECTokenResponse>)
-        .catch(error => {
-            throw error;
         });
-        // console.log(this._token);
+        if (!response.ok) {
+            throw new Error(`Login failed: ${response.status} ${response.statusText}`);
+        }
+        this._token = await response.json() as IECTokenResponse;
         if (this._token.error) {
             throw new Error(this._token.error);
         }
@@ -215,18 +233,16 @@ export class IEC {
             throw new Error("Not logged in");
         }
         const url = `${this.url}/api/${this.version}/${endpoint}`;
-        // console.log(url);
-        const result = await fetch(url, {
+        const response = await fetch(url, {
             headers: {
                 'Authorization': `Bearer ${this._token['access_token']}`
             }
-        })
-        .then(response => response.json() as IECResponse)
-        .catch(error => {
-            throw error;
         });
+        if (!response.ok) {
+            throw new Error(`Request failed: ${response.status} ${response.statusText} (${endpoint})`);
+        }
+        const result = await response.json() as IECResponse;
         if (result.Message) {
-            console.error(`Error: ${result.Message}`)
             throw new Error(result.Message);
         }
         return result;
@@ -289,7 +305,7 @@ export class IEC {
     }
 
     async contestingParties(ElectoralEventID: number) {
-        return this.get(`ContestingParties?ElectoralEventID=${ElectoralEventID}`) as Promise<IECContenstingPartiesResponse[]>;
+        return this.get(`ContestingParties?ElectoralEventID=${ElectoralEventID}`) as Promise<IECContestingPartiesResponse[]>;
     }
 
     async delimitations(ElectoralEventID: number) {
