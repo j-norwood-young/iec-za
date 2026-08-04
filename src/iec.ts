@@ -170,6 +170,209 @@ export type IECNPESeatAllocation = {
 
 export type IECNPESeatAllocationResultsResponse = IECNPESeatAllocation[];
 
+/** LGE party ballot line — Ward + PR + DC40 breakdown. */
+export type IECLGEPartyBallotResult = {
+    ID: number;
+    Name: string;
+    Ward_ValidVotes: number;
+    PR_ValidVotes: number;
+    DC40Perc_ValidVotes: number;
+    TotalValidVotes: number;
+    PercOfVotes: number;
+    IsOnNational: boolean;
+    Color: string;
+}
+
+export type IECLGEBallotResultsResponse = {
+    ElectoralEventID: number;
+    ElectoralEvent: string;
+    RegisteredVoters: number;
+    SpoiltVotes: number;
+    SpecialVotes: number;
+    PercVoterTurnout: number;
+    TotalVotesCast: number;
+    TotalValidVotes: number;
+    VDCount: number;
+    VDWithResultsCaptured: number;
+    bResultsComplete: boolean;
+    ReportDate?: string;
+    PartyBallotResults: IECLGEPartyBallotResult[];
+}
+
+export type IECLGEBallotResultsProvinceResponse = IECLGEBallotResultsResponse & {
+    ProvinceID: number;
+    Province: string;
+}
+
+export type IECLGEBallotResultsMunicipalityResponse = IECLGEBallotResultsProvinceResponse & {
+    MunicipalityID: number;
+    Municipality: string;
+}
+
+export type IECLGEBallotResultsWardResponse = IECLGEBallotResultsMunicipalityResponse & {
+    WardID: number;
+}
+
+export type IECLGEBallotResultsVotingDistrictResponse = IECLGEBallotResultsMunicipalityResponse & {
+    WardID?: number;
+    VDNumber: number;
+}
+
+export type IECLGESeatPartyResult = {
+    ID: number;
+    Name: string;
+    TotalValidVotes: number;
+    TotalPartySeats: number;
+    WardSeats: number;
+    PRSeats: number;
+}
+
+export type IECLGESeatCalculationResultsResponse = {
+    ElectoralEventID: number;
+    ElectoralEvent: string;
+    ProvinceID: number;
+    Province: string;
+    MunicipalityID: number;
+    Municipality: string;
+    Quota: number;
+    TotalSeatsAvailable: number;
+    IndependentSeatsWon: number;
+    WardCouncillorsWithNoPR: number;
+    TotalValidVotes: number;
+    ReportDate?: string;
+    PartyResults: IECLGESeatPartyResult[];
+}
+
+export type IECLGEWardCandidate = {
+    CandidateID: number;
+    PartyID: number;
+    PartyName: string;
+    Surname: string;
+    Fullname: string;
+}
+
+export type IECLGEPRCandidate = {
+    CandidateID: number;
+    ListOrderNo: number;
+    PartyID: number;
+    PartyName: string;
+    Surname: string;
+    Fullname: string;
+}
+
+export type IECContactDetails = {
+    ContactPerson: string;
+    Tel: string;
+    Fax: string;
+    PostalAddress: string;
+    WebsiteUrl: string;
+}
+
+export type IECPartyDetail = {
+    ID: number;
+    Name: string;
+    Abbreviation: string;
+    LogoUrl: string;
+    RegStatus: string;
+    RegLevel: string;
+    ContactDetails?: IECContactDetails;
+}
+
+export type IECMunicipalityDetail = {
+    ID: number;
+    Name: string;
+    ContactDetails?: IECContactDetails;
+}
+
+export type IECWardCouncilorDelimitation = {
+    ProvinceID: number;
+    Province: string;
+    MunicipalityID: number;
+    Municipality: string;
+    WardID: number;
+    VDNumber: number;
+}
+
+export type IECLGEWardCouncilorResponse = {
+    Name: string;
+    Delimitation?: IECWardCouncilorDelimitation;
+    PartyDetail?: IECPartyDetail;
+    Municipality?: IECMunicipalityDetail;
+    ProvinceID: number;
+    Province: string;
+    MunicipalityID: number;
+    WardID: number;
+    PartyID: number;
+    PartyName: string;
+    PartyAbbreviation: string;
+}
+
+export type IECLGECouncilorByEvent = {
+    Name: string;
+    ProvinceID: number;
+    Province: string;
+    MunicipalityID: number;
+    WardID: number;
+    PartyID: number;
+    PartyName: string;
+    PartyAbbreviation: string;
+}
+
+export type IECLatestResultsInItem = {
+    ProvinceID?: number;
+    Province?: string;
+    MunicipalityID?: number;
+    Municipality?: string;
+    WardID?: number;
+    VDNumber?: number;
+    [key: string]: unknown;
+}
+
+export type IECVotingStationDetails = {
+    Name?: string;
+    Location?: {
+        Latitude?: number;
+        Longitude?: number;
+        Municipality?: string;
+        MunicipalityID?: number;
+        Province?: string;
+        ProvinceID?: number;
+        Street?: string;
+        Suburb?: string;
+        Town?: string;
+        VDAddress?: string;
+        VDNumber?: number;
+        VotingDistrict?: string;
+        WardID?: number;
+    };
+    Delimitation?: IECWardCouncilorDelimitation;
+    [key: string]: unknown;
+}
+
+export type IECQueryParams = Record<string, string | number | boolean | undefined | null>;
+
+/**
+ * Build a query string from defined params (skips undefined/null).
+ * Values are URL-encoded.
+ */
+export function buildQuery(params: IECQueryParams): string {
+    const parts: string[] = [];
+    for (const [key, value] of Object.entries(params)) {
+        if (value === undefined || value === null) continue;
+        parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+    }
+    return parts.join("&");
+}
+
+/**
+ * Build an endpoint path with an optional query string.
+ */
+export function buildEndpoint(path: string, params?: IECQueryParams): string {
+    if (!params) return path;
+    const q = buildQuery(params);
+    return q ? `${path}?${q}` : path;
+}
+
 export class IEC {
     url: string;
     username: string;
@@ -241,7 +444,16 @@ export class IEC {
         if (!response.ok) {
             throw new Error(`Request failed: ${response.status} ${response.statusText} (${endpoint})`);
         }
-        const result = await response.json() as IECResponse;
+        const text = await response.text();
+        if (!text || !text.trim()) {
+            throw new Error(`Empty response body (${endpoint})`);
+        }
+        let result: IECResponse;
+        try {
+            result = JSON.parse(text) as IECResponse;
+        } catch {
+            throw new Error(`Invalid JSON response (${endpoint})`);
+        }
         if (result.Message) {
             throw new Error(result.Message);
         }
@@ -252,80 +464,278 @@ export class IEC {
         return this.get('ElectoralEvent') as Promise<IECElectoralEventTypeResponse[]>;
     }
 
-    async electoralEvents(ElectoralEventTypeID: number) {
-        return this.get(`ElectoralEvent?ElectoralEventTypeID=${ElectoralEventTypeID}`) as Promise<IECElectoralEventResponse[]>;
+    async electoralEvents(ElectoralEventTypeID: number, ParentEventID?: number) {
+        return this.get(buildEndpoint('ElectoralEvent', {
+            ElectoralEventTypeID,
+            ParentEventID,
+        })) as Promise<IECElectoralEventResponse[]>;
     }
 
     async electoralEventResultsProgress(ElectoralEventID: number) {
-        return this.get(`ResultsProgress?ElectoralEventID=${ElectoralEventID}`) as Promise<IECResultsProgressResponse>;
+        return this.get(buildEndpoint('ResultsProgress', { ElectoralEventID })) as Promise<IECResultsProgressResponse>;
     }
 
     async electoralEventProgressProvince(ElectoralEventID: number, ProvinceID: number) {
-        return this.get(`ResultsProgress?ElectoralEventID=${ElectoralEventID}&ProvinceID=${ProvinceID}`) as Promise<IECResultsProgressResponse>;
+        return this.get(buildEndpoint('ResultsProgress', {
+            ElectoralEventID,
+            ProvinceID,
+        })) as Promise<IECResultsProgressResponse>;
     }
 
-    async electoralEventProgressMunicipality(ElectoralEventID: number, MunicipalityID: number) {
-        return this.get(`ResultsProgress?ElectoralEventID=${ElectoralEventID}&MunicipalityID=${MunicipalityID}`) as Promise<IECResultsProgressResponse>;
+    /**
+     * Municipality progress requires ProvinceID per IEC Help contract.
+     */
+    async electoralEventProgressMunicipality(
+        ElectoralEventID: number,
+        ProvinceID: number,
+        MunicipalityID: number
+    ) {
+        return this.get(buildEndpoint('ResultsProgress', {
+            ElectoralEventID,
+            ProvinceID,
+            MunicipalityID,
+        })) as Promise<IECResultsProgressResponse>;
     }
 
-    async electoralEventProgressWard(ElectoralEventID: number, MunicipalityID: number, WardID: number) {
-        return this.get(`ResultsProgress?ElectoralEventID=${ElectoralEventID}&MunicipalityID=${MunicipalityID}&WardID=${WardID}`) as Promise<IECResultsProgressResponse>;
+    /**
+     * Ward progress requires ProvinceID + MunicipalityID + WardID.
+     */
+    async electoralEventProgressWard(
+        ElectoralEventID: number,
+        ProvinceID: number,
+        MunicipalityID: number,
+        WardID: number
+    ) {
+        return this.get(buildEndpoint('ResultsProgress', {
+            ElectoralEventID,
+            ProvinceID,
+            MunicipalityID,
+            WardID,
+        })) as Promise<IECResultsProgressResponse>;
     }
 
     async NPEBallotResults(ElectoralEventID: number) {
-        return this.get(`NPEBallotResults?ElectoralEventID=${ElectoralEventID}`) as Promise<IECNPEBallotResultsResponse>;
+        return this.get(buildEndpoint('NPEBallotResults', { ElectoralEventID })) as Promise<IECNPEBallotResultsResponse>;
     }
 
     async NPEBallotResultsProvince(ElectoralEventID: number, ProvinceID: number) {
-        return this.get(`NPEBallotResults?ElectoralEventID=${ElectoralEventID}&ProvinceID=${ProvinceID}`) as Promise<IECNPEBallotResultsProvinceResponse>;
+        return this.get(buildEndpoint('NPEBallotResults', {
+            ElectoralEventID,
+            ProvinceID,
+        })) as Promise<IECNPEBallotResultsProvinceResponse>;
     }
 
     async NPEBallotResultsMunicipality(ElectoralEventID: number, ProvinceID: number, MunicipalityID: number) {
-        return this.get(`NPEBallotResults?ElectoralEventID=${ElectoralEventID}&ProvinceID=${ProvinceID}&MunicipalityID=${MunicipalityID}`) as Promise<IECNPEBallotResultsMunicipalityResponse>;
+        return this.get(buildEndpoint('NPEBallotResults', {
+            ElectoralEventID,
+            ProvinceID,
+            MunicipalityID,
+        })) as Promise<IECNPEBallotResultsMunicipalityResponse>;
     }
 
     async NPEBallotResultsVotingDistrict(ElectoralEventID: number, ProvinceID: number, MunicipalityID: number, VDNumber: number) {
-        return this.get(`NPEBallotResults?ElectoralEventID=${ElectoralEventID}&ProvinceID=${ProvinceID}&MunicipalityID=${MunicipalityID}&VDNumber=${VDNumber}`) as Promise<IECNPEBallotResultsVotingDistrictResponse>;
+        return this.get(buildEndpoint('NPEBallotResults', {
+            ElectoralEventID,
+            ProvinceID,
+            MunicipalityID,
+            VDNumber,
+        })) as Promise<IECNPEBallotResultsVotingDistrictResponse>;
     }
 
     async NPESeatCalculationResults(ElectoralEventID: number) {
-        return this.get(`NPESeatCalculationResults?ElectoralEventID=${ElectoralEventID}`) as Promise<IECNPESeatCalculationResultsResponse>;
+        return this.get(buildEndpoint('NPESeatCalculationResults', { ElectoralEventID })) as Promise<IECNPESeatCalculationResultsResponse>;
     }
 
     async NPESeatCalculationResultsProvince(ElectoralEventID: number, ProvinceID: number) {
-        return this.get(`NPESeatCalculationResults?ElectoralEventID=${ElectoralEventID}&ProvinceID=${ProvinceID}`) as Promise<IECNPESeatCalculationResultsProvinceResponse>;
+        return this.get(buildEndpoint('NPESeatCalculationResults', {
+            ElectoralEventID,
+            ProvinceID,
+        })) as Promise<IECNPESeatCalculationResultsProvinceResponse>;
     }
 
     async NPESeatAllocationResults(ElectoralEventID: number, PartyID: number) {
-        return this.get(`NPESeatAllocationResults?ElectoralEventID=${ElectoralEventID}&PartyID=${PartyID}`) as Promise<IECNPESeatAllocationResultsResponse>;
+        return this.get(buildEndpoint('NPESeatAllocationResults', {
+            ElectoralEventID,
+            PartyID,
+        })) as Promise<IECNPESeatAllocationResultsResponse>;
     }
 
     async NPECandidates(ElectoralEventID: number, PartyID: number) {
-        return this.get(`NPECandidates?ElectoralEventID=${ElectoralEventID}&PartyID=${PartyID}`) as Promise<IECNPECandidatesResponse>;
+        return this.get(buildEndpoint('NPECandidates', {
+            ElectoralEventID,
+            PartyID,
+        })) as Promise<IECNPECandidatesResponse>;
     }
 
-    async contestingParties(ElectoralEventID: number) {
-        return this.get(`ContestingParties?ElectoralEventID=${ElectoralEventID}`) as Promise<IECContestingPartiesResponse[]>;
+    async contestingParties(
+        ElectoralEventID: number,
+        ProvinceID?: number,
+        MunicipalityID?: number
+    ) {
+        return this.get(buildEndpoint('ContestingParties', {
+            ElectoralEventID,
+            ProvinceID,
+            MunicipalityID,
+        })) as Promise<IECContestingPartiesResponse[]>;
     }
 
     async delimitations(ElectoralEventID: number) {
-        return this.get(`Delimitation?ElectoralEventID=${ElectoralEventID}`) as Promise<IECDelimitationResponse>;
+        return this.get(buildEndpoint('Delimitation', { ElectoralEventID })) as Promise<IECDelimitationResponse>;
     }
 
     async delimitationsProvince(ElectoralEventID: number, ProvinceID: number) {
-        return this.get(`Delimitation?ElectoralEventID=${ElectoralEventID}&ProvinceID=${ProvinceID}`) as Promise<IECDelimitationProvinceResponse>;
+        return this.get(buildEndpoint('Delimitation', {
+            ElectoralEventID,
+            ProvinceID,
+        })) as Promise<IECDelimitationProvinceResponse>;
     }
 
     async delimitationsMunicipality(ElectoralEventID: number, ProvinceID: number, MunicipalityID: number) {
-        return this.get(`Delimitation?ElectoralEventID=${ElectoralEventID}&ProvinceID=${ProvinceID}&MunicipalityID=${MunicipalityID}`) as Promise<IECDelimitationMunicipalityResponse>;
+        return this.get(buildEndpoint('Delimitation', {
+            ElectoralEventID,
+            ProvinceID,
+            MunicipalityID,
+        })) as Promise<IECDelimitationMunicipalityResponse>;
     }
 
     async delimitationsWard(ElectoralEventID: number, ProvinceID: number, MunicipalityID: number, WardID: number) {
-        return this.get(`Delimitation?ElectoralEventID=${ElectoralEventID}&ProvinceID=${ProvinceID}&MunicipalityID=${MunicipalityID}&WardID=${WardID}`) as Promise<IECDelimitationWardResponse>;
+        return this.get(buildEndpoint('Delimitation', {
+            ElectoralEventID,
+            ProvinceID,
+            MunicipalityID,
+            WardID,
+        })) as Promise<IECDelimitationWardResponse>;
     }
 
     async delimitationsLatLong(Latitude: number, Longitude: number) {
-        return this.get(`Delimitation?Latitude=${Latitude}&Longitude=${Longitude}`) as Promise<IECDelimitationLatLongResponse>;
+        return this.get(buildEndpoint('Delimitation', {
+            Latitude,
+            Longitude,
+        })) as Promise<IECDelimitationLatLongResponse>;
     }
 
+    // --- LGE Ballot Results ---
+
+    async LGEBallotResults(ElectoralEventID: number) {
+        return this.get(buildEndpoint('LGEBallotResults', { ElectoralEventID })) as Promise<IECLGEBallotResultsResponse>;
+    }
+
+    async LGEBallotResultsProvince(ElectoralEventID: number, ProvinceID: number) {
+        return this.get(buildEndpoint('LGEBallotResults', {
+            ElectoralEventID,
+            ProvinceID,
+        })) as Promise<IECLGEBallotResultsProvinceResponse>;
+    }
+
+    async LGEBallotResultsMunicipality(
+        ElectoralEventID: number,
+        ProvinceID: number,
+        MunicipalityID: number
+    ) {
+        return this.get(buildEndpoint('LGEBallotResults', {
+            ElectoralEventID,
+            ProvinceID,
+            MunicipalityID,
+        })) as Promise<IECLGEBallotResultsMunicipalityResponse>;
+    }
+
+    async LGEBallotResultsWard(
+        ElectoralEventID: number,
+        ProvinceID: number,
+        MunicipalityID: number,
+        WardID: number
+    ) {
+        return this.get(buildEndpoint('LGEBallotResults', {
+            ElectoralEventID,
+            ProvinceID,
+            MunicipalityID,
+            WardID,
+        })) as Promise<IECLGEBallotResultsWardResponse>;
+    }
+
+    async LGEBallotResultsVotingDistrict(
+        ElectoralEventID: number,
+        ProvinceID: number,
+        MunicipalityID: number,
+        VDNumber: number
+    ) {
+        return this.get(buildEndpoint('LGEBallotResults', {
+            ElectoralEventID,
+            ProvinceID,
+            MunicipalityID,
+            VDNumber,
+        })) as Promise<IECLGEBallotResultsVotingDistrictResponse>;
+    }
+
+    // --- LGE Seat Calculation ---
+
+    async LGESeatCalculationResults(ElectoralEventID: number, MunicipalityID: number) {
+        return this.get(buildEndpoint('LGESeatCalculationResults', {
+            ElectoralEventID,
+            MunicipalityID,
+        })) as Promise<IECLGESeatCalculationResultsResponse>;
+    }
+
+    // --- LGE Candidates ---
+
+    async LGECandidatesByWard(ElectoralEventID: number, WardID: number) {
+        return this.get(buildEndpoint('LGECandidates', {
+            ElectoralEventID,
+            WardID,
+        })) as Promise<IECLGEWardCandidate[]>;
+    }
+
+    async LGECandidatesByMunicipality(ElectoralEventID: number, MunicipalityID: number) {
+        return this.get(buildEndpoint('LGECandidates', {
+            ElectoralEventID,
+            MunicipalityID,
+        })) as Promise<IECLGEPRCandidate[]>;
+    }
+
+    // --- LGE Ward Councilors ---
+
+    async LGEWardCouncilor(WardID: number) {
+        return this.get(buildEndpoint('LGEWardCouncilor', { WardID })) as Promise<IECLGEWardCouncilorResponse>;
+    }
+
+    async LGEWardCouncilorByLatLong(Latitude: number, Longitude: number) {
+        return this.get(buildEndpoint('LGEWardCouncilor', {
+            Latitude,
+            Longitude,
+        })) as Promise<IECLGEWardCouncilorResponse>;
+    }
+
+    async LGECouncilorsByEvent(ElectoralEventID: number) {
+        return this.get(buildEndpoint('CouncilorsByEvent', {
+            ElectoralEventID,
+        })) as Promise<IECLGECouncilorByEvent[] | IECLGECouncilorByEvent>;
+    }
+
+    // --- Latest results / voting stations ---
+
+    async LatestResultsIn(ElectoralEventID: number, NumberOfVDs: number) {
+        return this.get(buildEndpoint('LatestResultsIn', {
+            ElectoralEventID,
+            NumberOfVDs,
+        })) as Promise<IECLatestResultsInItem[]>;
+    }
+
+    async VotingStationDetailsByVD(VDNumber: number) {
+        return this.get(buildEndpoint('VotingStationDetails', {
+            VDNumber,
+        })) as Promise<IECVotingStationDetails>;
+    }
+
+    async VotingStationDetailsByLocation(Latitude: number, Longitude: number) {
+        return this.get(buildEndpoint('VotingStationDetails', {
+            Latitude,
+            Longitude,
+        })) as Promise<IECVotingStationDetails>;
+    }
+
+    async VotingStationsByEvent(ElectoralEventID: number) {
+        return this.get(buildEndpoint('VotingStations', {
+            ElectoralEventID,
+        })) as Promise<IECVotingStationDetails[]>;
+    }
 }

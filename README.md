@@ -5,7 +5,8 @@ A Typescript module to retrieve data from the Independent Electoral Commission o
 ## Notes
 
 - This module is not affiliated with the Independent Electoral Commission of South Africa. It is an unofficial module created to make it easier to retrieve data from the IEC's API. See [#IEC information](#iec-information) for more information.
-- This module is a work in progress. It is not yet feature complete. It is focussed on National and Provincial Elections (NPE) data at the moment. 
+- Supports **National/Provincial Elections (NPE)** and **Local Government Elections (LGE)** result surfaces (ballots, seats, candidates, councilors, progress, delimitation, parties, latest results, voting stations).
+- Voter lookup, observer, and special-vote application endpoints are intentionally out of scope.
 - It is mostly a pass-through to the IEC's API. Some smarter features may be added in the future.
 
 ## Installation
@@ -14,6 +15,20 @@ A Typescript module to retrieve data from the Independent Electoral Commission o
 
 ```bash
 npm install iec-za
+```
+
+### Local development (sibling repo)
+
+From a consumer such as `electionengine`:
+
+```bash
+npm install ../iec-za
+```
+
+Rebuild after source changes:
+
+```bash
+cd ../iec-za && npm run build
 ```
 
 ### Environmental variables
@@ -48,8 +63,12 @@ import { IEC } from 'iec-za';
 
 const iec = new IEC(); // or new IEC({ username: 'username', password: 'password', url: 'https://api.elections.org.za', version: 'v1' });
 async function main() {
-    const electoralEventTypes = await iec.electoralEventTypes(); // Retrieves the electoral event types
-    console.log(electoralEventTypes);
+    const electoralEventTypes = await iec.electoralEventTypes();
+    const lgeType = electoralEventTypes.find((t) => /local\s+government/i.test(t.Description));
+    const events = await iec.electoralEvents(lgeType!.ID);
+    const event2021 = events.find((e) => e.Description.includes('2021'));
+    const results = await iec.LGEBallotResults(event2021!.ID);
+    console.log(results.PartyBallotResults[0]);
 }
 ```
 
@@ -57,121 +76,90 @@ async function main() {
 
 For more information on the methods, please refer to the [IEC API documentation](https://api.elections.org.za/Help)
 
-### `login(token?: string)`
-- Logs in to the IEC API. 
-- Returns a token.
-- Send a token to reuse an existing token.
-- Not strictly required as the other methods will log in automatically.
+### Auth / low-level
 
-### `get(endpoing: string)`
+#### `login(token?)`
+- Logs in to the IEC API and returns a token.
+- Pass an existing token to reuse it when still valid.
+- Not strictly required — other methods log in automatically.
 
-- Low-level method to retrieve data from the IEC API.
-- Typically you would use the other methods instead.
+#### `get(endpoint)`
+- Low-level GET against `/api/{version}/{endpoint}`.
+- Prefer the typed methods below.
 
-### `electoralEventTypes()`
+### Electoral events & progress
 
-- Retrieves the electoral event types.
-- Returns an array of electoral event types.
+#### `electoralEventTypes()`
+- Returns electoral event types (National, Provincial, Local Government, …).
 
-### `electoralEvents(electionType)`
+#### `electoralEvents(electionTypeId, parentEventId?)`
+- Returns electoral events for a type; optional `ParentEventID` for by-elections.
 
-- Retrieves the electoral events.
-- Returns an array of electoral events.
+#### `electoralEventResultsProgress(eventId)`
+#### `electoralEventProgressProvince(eventId, provinceId)`
+#### `electoralEventProgressMunicipality(eventId, provinceId, municipalityId)`
+#### `electoralEventProgressWard(eventId, provinceId, municipalityId, wardId)`
+- Counting progress (`VDResultsIn`, `VDTotal`, `SeatCalculationCompleted`).
+- Municipality and ward progress **require** `ProvinceID` per the IEC contract.
 
-### `delimitations(electoralEventId)`
+### Delimitation & parties
 
-- Retrieves the delimitations.
-- Returns an array of provinces.
+#### `delimitations(eventId)` → provinces
+#### `delimitationsProvince(eventId, provinceId)` → municipalities
+#### `delimitationsMunicipality(eventId, provinceId, municipalityId)` → wards
+#### `delimitationsWard(eventId, provinceId, municipalityId, wardId)` → voting districts
+#### `delimitationsLatLong(lat, long)` → delimitation for a coordinate
 
-### `delimitationsProvince(electoralEventId, provinceId)`
+#### `contestingParties(eventId, provinceId?, municipalityId?)`
+- Contesting parties for an event, optionally filtered by province/municipality.
 
-- Retrieves the delimitations for a province.
-- Returns an array of municipalities.
+### NPE (National / Provincial)
 
-### `delimitationsMunicipality(electoralEventId, municipalityId)`
+#### `NPEBallotResults(eventId)`
+#### `NPEBallotResultsProvince(eventId, provinceId)`
+#### `NPEBallotResultsMunicipality(eventId, provinceId, municipalityId)`
+#### `NPEBallotResultsVotingDistrict(eventId, provinceId, municipalityId, vdNumber)`
+#### `NPESeatCalculationResults(eventId)`
+#### `NPESeatCalculationResultsProvince(eventId, provinceId)`
+#### `NPESeatAllocationResults(eventId, partyId)`
+#### `NPECandidates(eventId, partyId)`
 
-- Retrieves the delimitations for a municipality.
-- Returns an array of wards.
+### LGE (Local Government)
 
-### `delimitationsWard(electoralEventId, wardId)`
+#### `LGEBallotResults(eventId)`
+#### `LGEBallotResultsProvince(eventId, provinceId)`
+#### `LGEBallotResultsMunicipality(eventId, provinceId, municipalityId)`
+#### `LGEBallotResultsWard(eventId, provinceId, municipalityId, wardId)`
+#### `LGEBallotResultsVotingDistrict(eventId, provinceId, municipalityId, vdNumber)`
+- Party ballots include `Ward_ValidVotes`, `PR_ValidVotes`, `DC40Perc_ValidVotes`, and `TotalValidVotes`.
 
-- Retrieves the delimitations for a ward.
-- Returns an array of voting districts.
+#### `LGESeatCalculationResults(eventId, municipalityId)`
+- Municipal council seat allocation (ward + PR seats per party).
 
-### `delimitationsVotingDistrict(electoralEventId, votingDistrictId)`
+#### `LGECandidatesByWard(eventId, wardId)`
+#### `LGECandidatesByMunicipality(eventId, municipalityId)`
+- Ward contestants vs PR list candidates (`ListOrderNo` on PR).
 
-- Retrieves the delimitations for a voting district.
-- Returns an array of voting stations.
+#### `LGEWardCouncilor(wardId)`
+#### `LGEWardCouncilorByLatLong(lat, long)`
+#### `LGECouncilorsByEvent(eventId)`
 
-### `delimitationsLatLong(lat, long)`
+### Live feeds / stations
 
-- Retrieves the delimitations for a latitude and longitude.
-- Returns province, municipality, ward, and voting district.
+#### `LatestResultsIn(eventId, numberOfVDs)`
+#### `VotingStationDetailsByVD(vdNumber)`
+#### `VotingStationDetailsByLocation(lat, long)`
+#### `VotingStationsByEvent(eventId)`
 
-### `contestingParties(electoralEventId)`
+## Tests
 
-- Retrieves the contesting parties.
-- Returns an array of contesting parties.
+```bash
+npm run test:unit   # mocked URL / error-path tests (no credentials)
+npm run test:live   # live IEC NPE + LGE (requires IEC_USERNAME / IEC_PASSWORD)
+npm test            # unit + live
+```
 
-### `electoralEventResultsProgress(electoralEventId)`
-
-- Retrieves the electoral event results progress.
-- Returns an array of electoral event results progress.
-
-### `electoralEventProgressProvince(electoralEventId, provinceId)`
-
-- Retrieves the electoral event progress for a province.
-- Returns an array of electoral event progress for a province.
-
-### `electoralEventProgressMunicipality(electoralEventId, municipalityId)`
-
-- Retrieves the electoral event progress for a municipality.
-- Returns an array of electoral event progress for a municipality.
-
-### `electoralEventProgressWard(electoralEventId, wardId)`
-
-- Retrieves the electoral event progress for a ward.
-- Returns an array of electoral event progress for a ward.
-
-### `NPEBallotResults(electoralEventId)`
-
-- Retrieves the NPE ballot results.
-- Returns an array of NPE ballot results (PartyBallotResults).
-
-### `NPEBallotResultsProvince(electoralEventId, provinceId)`
-
-- Retrieves the NPE ballot results for a province.
-- Returns an array of NPE ballot results for a province.
-
-### `NPEBallotResultsMunicipality(electoralEventId, municipalityId)`
-
-- Retrieves the NPE ballot results for a municipality.
-- Returns an array of NPE ballot results for a municipality.
-
-### `NPEBallotResultsVotingDistrict(electoralEventId, municipalityId, wardId, votingDistrictId)`
-
-- Retrieves the NPE ballot results for a voting district.
-- Returns an array of NPE ballot results for a voting district.
-
-### `NPESeatCalculationResults(electoralEventId)`
-
-- Retrieves the NPE seat calculation results.
-- Returns an array of NPE seat calculation results by party (PartyResults).
-
-### `NPESeatCalculationResultsProvince(electoralEventId, provinceId)`
-
-- Retrieves the NPE seat calculation results for a province.
-- Returns an array of NPE seat calculation results for provincial legislature.
-
-### `NPESeatAllocationResults(electoralEventId, partyId)`
-
-- Retrieves the NPE seat allocation results for a party.
-- Returns an array of NPE seat allocation results for a party.
-
-### `NPECandidates(electoralEventId, partyId)`
-
-- Retrieves the NPE candidates for a party.
-- Returns an array of NPE candidates for a party.
+Live LGE tests discover the 2021 Local Government Election and traverse a real province → municipality → ward → VD before exercising ballot, seat, candidate, councilor, progress, party, and station endpoints.
 
 ## License
 MIT License

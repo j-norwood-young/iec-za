@@ -1,11 +1,13 @@
 {
   "name": "iec-za",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A Typescript module to retrieve data from the Independent Electoral Commission of South Africa's API",
   "main": "dist/iec.js",
   "types": "dist/iec.d.ts",
   "scripts": {
     "test": "jest",
+    "test:unit": "jest tests/iec.unit.test.ts",
+    "test:live": "jest tests/iec.test.ts tests/iec.lge.test.ts",
     "build": "tsc",
     "lint": "eslint .",
     "prepare": "npm run lint && npm run build"

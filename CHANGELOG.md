@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-04
+
+### Added
+
+- Full Local Government Election (LGE) client coverage: `LGEBallotResults` (event → province → municipality → ward → VD), `LGESeatCalculationResults`, ward/PR `LGECandidates`, `LGEWardCouncilor`, `CouncilorsByEvent`
+- Supporting live-feed helpers: `LatestResultsIn`, `VotingStationDetailsByVD`, `VotingStationDetailsByLocation`, `VotingStationsByEvent`
+- Scoped `contestingParties` filters (province, municipality) and optional `ParentEventID` on `electoralEvents`
+- Shared `buildQuery` / `buildEndpoint` helpers for typed query construction
+- Unit tests for URL construction and LGE method endpoints; live LGE integration suite against the 2021 election
+- Clearer errors for empty or non-JSON IEC response bodies
+
+### Changed
+
+- `electoralEventProgressMunicipality` and `electoralEventProgressWard` now require `ProvinceID` to match the IEC Help contract
+
 ## [0.2.0] - 2026-08-04
 
 ### Added
