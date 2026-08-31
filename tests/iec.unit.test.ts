@@ -72,20 +72,179 @@ describe('IEC URL construction (mocked fetch)', () => {
         return String(url);
     }
 
+    function tokenResponse(overrides: Partial<{
+        access_token: string;
+        refresh_token: string;
+        expiresAt: Date;
+    }> = {}) {
+        const expiresAt = overrides.expiresAt ?? new Date(Date.now() + 3600_000);
+        return {
+            access_token: overrides.access_token ?? 'abc',
+            token_type: 'bearer',
+            expires_in: 3600,
+            refresh_token: overrides.refresh_token ?? 'r',
+            userName: 'test-user',
+            '.issued': new Date().toISOString(),
+            '.expires': expiresAt.toISOString(),
+        };
+    }
+
     test('login posts token endpoint', async () => {
         iec._loggedIn = false;
         iec._token = undefined;
-        mockJson({
-            access_token: 'abc',
-            token_type: 'bearer',
-            expires_in: 3600,
-            refresh_token: 'r',
-            userName: 'test-user',
-            '.issued': new Date().toISOString(),
-            '.expires': new Date(Date.now() + 3600_000).toISOString(),
-        });
+        mockJson(tokenResponse({ access_token: 'abc' }));
         await iec.login();
         expect(String(fetchMock.mock.calls[0]![0])).toBe('https://example.test/token');
+        const body = String(fetchMock.mock.calls[0]![1]?.body);
+        expect(body).toContain('grant_type=password');
+    });
+
+    test('isTokenValid respects expiry skew', () => {
+        iec._token = tokenResponse({
+            expiresAt: new Date(Date.now() + 30_000), // within 60s skew
+        });
+        expect(iec.isTokenValid()).toBe(false);
+
+        iec._token = tokenResponse({
+            expiresAt: new Date(Date.now() + 120_000),
+        });
+        expect(iec.isTokenValid()).toBe(true);
+    });
+
+    test('get re-logs in when access token is expired', async () => {
+        iec._token = tokenResponse({
+            access_token: 'stale',
+            refresh_token: 'refresh-me',
+            expiresAt: new Date(Date.now() - 60_000),
+        });
+        iec._loggedIn = true;
+
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                statusText: 'OK',
+                text: async () => '',
+                json: async () => tokenResponse({
+                    access_token: 'fresh',
+                    refresh_token: 'refresh-me',
+                }),
+            } as Response)
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                statusText: 'OK',
+                text: async () => JSON.stringify([{ ID: 1 }]),
+                json: async () => [{ ID: 1 }],
+            } as Response);
+
+        const result = await iec.get('ElectoralEvent');
+        expect(result).toEqual([{ ID: 1 }]);
+        expect(String(fetchMock.mock.calls[0]![0])).toBe('https://example.test/token');
+        const loginBody = String(fetchMock.mock.calls[0]![1]?.body);
+        expect(loginBody).toContain('grant_type=refresh_token');
+        expect(loginBody).toContain('refresh_token=refresh-me');
+        expect(String(fetchMock.mock.calls[1]![0])).toContain('/api/v1/ElectoralEvent');
+        const auth = (fetchMock.mock.calls[1]![1]?.headers as Record<string, string>)['Authorization'];
+        expect(auth).toBe('Bearer fresh');
+    });
+
+    test('get falls back to password grant when refresh fails', async () => {
+        iec._token = tokenResponse({
+            access_token: 'stale',
+            refresh_token: 'dead-refresh',
+            expiresAt: new Date(Date.now() - 60_000),
+        });
+        iec._loggedIn = true;
+
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 400,
+                statusText: 'Bad Request',
+                text: async () => '',
+                json: async () => ({ error: 'invalid_grant' }),
+            } as Response)
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                statusText: 'OK',
+                text: async () => '',
+                json: async () => tokenResponse({ access_token: 'password-fresh' }),
+            } as Response)
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                statusText: 'OK',
+                text: async () => JSON.stringify([]),
+                json: async () => [],
+            } as Response);
+
+        await iec.get('ElectoralEvent');
+        expect(String(fetchMock.mock.calls[0]![1]?.body)).toContain('grant_type=refresh_token');
+        expect(String(fetchMock.mock.calls[1]![1]?.body)).toContain('grant_type=password');
+        const auth = (fetchMock.mock.calls[2]![1]?.headers as Record<string, string>)['Authorization'];
+        expect(auth).toBe('Bearer password-fresh');
+    });
+
+    test('get retries once after 401 Unauthorized', async () => {
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                text: async () => JSON.stringify({ Message: 'Authorization has been denied for this request.' }),
+                json: async () => ({ Message: 'Authorization has been denied for this request.' }),
+            } as Response)
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                statusText: 'OK',
+                text: async () => '',
+                json: async () => tokenResponse({ access_token: 'after-401' }),
+            } as Response)
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                statusText: 'OK',
+                text: async () => JSON.stringify({ ok: true }),
+                json: async () => ({ ok: true }),
+            } as Response);
+
+        const result = await iec.get('ElectoralEvent');
+        expect(result).toEqual({ ok: true });
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(String(fetchMock.mock.calls[1]![0])).toBe('https://example.test/token');
+        const auth = (fetchMock.mock.calls[2]![1]?.headers as Record<string, string>)['Authorization'];
+        expect(auth).toBe('Bearer after-401');
+    });
+
+    test('get does not retry 401 indefinitely', async () => {
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                text: async () => '',
+                json: async () => ({}),
+            } as Response)
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                statusText: 'OK',
+                text: async () => '',
+                json: async () => tokenResponse({ access_token: 'still-bad' }),
+            } as Response)
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                text: async () => '',
+                json: async () => ({}),
+            } as Response);
+
+        await expect(iec.get('ElectoralEvent')).rejects.toThrow(/Request failed: 401/);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     test('get throws on HTTP error', async () => {

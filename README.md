@@ -81,10 +81,12 @@ For more information on the methods, please refer to the [IEC API documentation]
 #### `login(token?)`
 - Logs in to the IEC API and returns a token.
 - Pass an existing token to reuse it when still valid.
-- Not strictly required — other methods log in automatically.
+- When the access token is expired, tries `refresh_token` first, then falls back to password grant.
+- Not strictly required — other methods log in automatically and refresh before expiry (60s skew).
 
 #### `get(endpoint)`
 - Low-level GET against `/api/{version}/{endpoint}`.
+- Ensures a valid token before each request; on `401`/`403`, re-authenticates once and retries.
 - Prefer the typed methods below.
 
 ### Electoral events & progress

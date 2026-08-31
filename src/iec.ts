@@ -373,12 +373,17 @@ export function buildEndpoint(path: string, params?: IECQueryParams): string {
     return q ? `${path}?${q}` : path;
 }
 
+/** Refresh slightly before the token's stated expiry to avoid race with the server clock. */
+const TOKEN_EXPIRY_SKEW_MS = 60_000;
+
 export class IEC {
     url: string;
     username: string;
     password: string;
     _token: IECTokenResponse | undefined;
     _loggedIn: boolean = false;
+    /** Coalesces concurrent login/refresh attempts. */
+    _loginInFlight: Promise<IECTokenResponse> | null = null;
     version: string;
 
     constructor({ username, password, url, version}: { username?: string, password?: string, url?: string, version?: string } = {}) {
@@ -396,51 +401,148 @@ export class IEC {
         this.username = username;
         this.password = password;
     }
-    
-    async login(token?: IECTokenResponse) {
-        if (token) {
-            const expires = new Date(token[".expires"]);
-            if (expires > new Date()) {
-                this._token = token;
-                this._loggedIn = true;
-                return this._token;
-            }
+
+    isTokenValid(token: IECTokenResponse | undefined = this._token): boolean {
+        if (!token?.access_token || !token[".expires"]) {
+            return false;
         }
+        const expiresAt = Date.parse(token[".expires"]);
+        if (Number.isNaN(expiresAt)) {
+            return false;
+        }
+        return expiresAt - TOKEN_EXPIRY_SKEW_MS > Date.now();
+    }
+
+    clearAuth() {
+        this._token = undefined;
+        this._loggedIn = false;
+    }
+
+    private async fetchToken(body: Record<string, string>): Promise<IECTokenResponse> {
         const response = await fetch(`${this.url}/token`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: new URLSearchParams({ 
-                grant_type: 'password',
-                username: this.username, 
-                password: this.password 
-            })
+            body: new URLSearchParams(body)
         });
         if (!response.ok) {
             throw new Error(`Login failed: ${response.status} ${response.statusText}`);
         }
-        this._token = await response.json() as IECTokenResponse;
-        if (this._token.error) {
-            throw new Error(this._token.error);
+        const token = await response.json() as IECTokenResponse;
+        if (token.error) {
+            throw new Error(token.error);
         }
+        if (!token.access_token) {
+            throw new Error("Login failed: missing access_token");
+        }
+        this._token = token;
         this._loggedIn = true;
         return this._token;
     }
 
-    async get(endpoint: string) {
-        if (!this._loggedIn) {
-            await this.login();
+    private async loginWithPassword(): Promise<IECTokenResponse> {
+        return this.fetchToken({
+            grant_type: 'password',
+            username: this.username,
+            password: this.password,
+        });
+    }
+
+    private async loginWithRefresh(refreshToken: string): Promise<IECTokenResponse> {
+        return this.fetchToken({
+            grant_type: 'refresh_token',
+            refresh_token: refreshToken,
+        });
+    }
+
+    /**
+     * Obtain (or reuse) an access token.
+     * Pass an existing token to adopt it when still valid.
+     * Otherwise refreshes when possible, then falls back to password grant.
+     */
+    async login(token?: IECTokenResponse) {
+        if (token) {
+            if (this.isTokenValid(token)) {
+                this._token = token;
+                this._loggedIn = true;
+                return this._token;
+            }
+            // Adopt refresh_token from a caller-supplied expired token when present.
+            if (token.refresh_token && !this._token?.refresh_token) {
+                this._token = token;
+            }
         }
-        if (!this._token || !this._token['access_token']) {
+
+        if (this.isTokenValid()) {
+            return this._token!;
+        }
+
+        if (this._loginInFlight) {
+            return this._loginInFlight;
+        }
+
+        this._loginInFlight = this.acquireToken().finally(() => {
+            this._loginInFlight = null;
+        });
+        return this._loginInFlight;
+    }
+
+    private async acquireToken(): Promise<IECTokenResponse> {
+        const refreshToken = this._token?.refresh_token;
+        if (refreshToken) {
+            try {
+                return await this.loginWithRefresh(refreshToken);
+            } catch {
+                // Refresh may be revoked or expired; fall through to password grant.
+            }
+        }
+        return this.loginWithPassword();
+    }
+
+    async ensureLoggedIn() {
+        if (this.isTokenValid()) {
+            return;
+        }
+        this._loggedIn = false;
+        await this.login();
+        if (!this.isTokenValid()) {
+            throw new Error("Not logged in");
+        }
+    }
+
+    async get(endpoint: string, { retryOnAuthFailure = true }: { retryOnAuthFailure?: boolean } = {}): Promise<IECResponse> {
+        await this.ensureLoggedIn();
+        if (!this._token?.access_token) {
             throw new Error("Not logged in");
         }
         const url = `${this.url}/api/${this.version}/${endpoint}`;
         const response = await fetch(url, {
             headers: {
-                'Authorization': `Bearer ${this._token['access_token']}`
+                'Authorization': `Bearer ${this._token.access_token}`
             }
         });
+        if (response.status === 401 || response.status === 403) {
+            if (retryOnAuthFailure) {
+                const refreshToken = this._token?.refresh_token;
+                this.clearAuth();
+                // Keep refresh_token so login() can try refresh before password.
+                if (refreshToken) {
+                    this._token = {
+                        access_token: '',
+                        token_type: 'bearer',
+                        expires_in: 0,
+                        refresh_token: refreshToken,
+                        userName: this.username,
+                        '.issued': '',
+                        '.expires': new Date(0).toISOString(),
+                    };
+                }
+                await this.login();
+                return this.get(endpoint, { retryOnAuthFailure: false });
+            }
+            throw new Error(`Request failed: ${response.status} ${response.statusText} (${endpoint})`);
+        }
         if (!response.ok) {
             throw new Error(`Request failed: ${response.status} ${response.statusText} (${endpoint})`);
         }
