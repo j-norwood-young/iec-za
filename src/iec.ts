@@ -153,10 +153,13 @@ export type IECNPECandidate = {
     ID: number;
     Firstname: string;
     Surname: string;
-    ListType: string;
-    ProvinceID: number;
-    Province: string;
     PartyAbbr: string;
+    /** Present on national lists; often null/omitted on provincial lists. */
+    ListType?: string | null;
+    ProvinceID?: number;
+    Province?: string;
+    PartyID?: number;
+    IsIndependent?: boolean | null;
 }
 
 export type IECNPECandidatesResponse = IECNPECandidate[];

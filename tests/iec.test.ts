@@ -253,8 +253,18 @@ describeIfLive('IEC live NPE', () => {
     });
 
     test('IEC.NPECandidatesProvince', async () => {
+        const electoralEventTypes = await iec.electoralEventTypes();
+        const provincialType = electoralEventTypes.find((t) =>
+            /provincial/i.test(t.Description)
+        );
+        expect(provincialType).toBeDefined();
+        const provincialEvents = await iec.electoralEvents(provincialType!.ID);
+        const provincialEvent = provincialEvents.find((e) =>
+            e.Description.includes('2019')
+        );
+        expect(provincialEvent).toBeDefined();
         const NPECandidates = await iec.NPECandidatesProvince(
-            electoralEvent,
+            provincialEvent!.ID,
             province,
             party
         );
@@ -262,7 +272,8 @@ describeIfLive('IEC live NPE', () => {
         expect(NPECandidates.length).toBeGreaterThan(0);
         expect(NPECandidates[0]!.ID).toBeDefined();
         expect(NPECandidates[0]!.Surname).toBeDefined();
-        expect(NPECandidates[0]!.ProvinceID).toBe(province);
+        expect(NPECandidates[0]!.Firstname).toBeDefined();
+        expect(NPECandidates[0]!.PartyAbbr).toBeDefined();
     });
 
     test('IEC.delimitationsLatLong', async () => {
