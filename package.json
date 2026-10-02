@@ -1,6 +1,6 @@
 {
   "name": "iec-za",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "A Typescript module to retrieve data from the Independent Electoral Commission of South Africa's API",
   "main": "dist/iec.js",
   "types": "dist/iec.d.ts",

@@ -125,6 +125,9 @@ For more information on the methods, please refer to the [IEC API documentation]
 #### `NPESeatCalculationResultsProvince(eventId, provinceId)`
 #### `NPESeatAllocationResults(eventId, partyId)`
 #### `NPECandidates(eventId, partyId)`
+- National party-list candidates for an electoral event.
+#### `NPECandidatesProvince(eventId, provinceId, partyId)`
+- Provincial party-list candidates for an electoral event and province.
 
 ### LGE (Local Government)
 

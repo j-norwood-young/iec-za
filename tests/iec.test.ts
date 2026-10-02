@@ -252,6 +252,19 @@ describeIfLive('IEC live NPE', () => {
         expect(NPECandidates[0]!.Surname).toBeDefined();
     });
 
+    test('IEC.NPECandidatesProvince', async () => {
+        const NPECandidates = await iec.NPECandidatesProvince(
+            electoralEvent,
+            province,
+            party
+        );
+        expect(NPECandidates).toBeDefined();
+        expect(NPECandidates.length).toBeGreaterThan(0);
+        expect(NPECandidates[0]!.ID).toBeDefined();
+        expect(NPECandidates[0]!.Surname).toBeDefined();
+        expect(NPECandidates[0]!.ProvinceID).toBe(province);
+    });
+
     test('IEC.delimitationsLatLong', async () => {
         const delimitationsLatLong = await iec.delimitationsLatLong(lat, lng);
         expect(delimitationsLatLong).toBeDefined();

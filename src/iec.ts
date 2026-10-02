@@ -669,6 +669,14 @@ export class IEC {
         })) as Promise<IECNPECandidatesResponse>;
     }
 
+    async NPECandidatesProvince(ElectoralEventID: number, ProvinceID: number, PartyID: number) {
+        return this.get(buildEndpoint('NPECandidates', {
+            ElectoralEventID,
+            ProvinceID,
+            PartyID,
+        })) as Promise<IECNPECandidatesResponse>;
+    }
+
     async contestingParties(
         ElectoralEventID: number,
         ProvinceID?: number,

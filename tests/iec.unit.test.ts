@@ -315,6 +315,19 @@ describe('IEC URL construction (mocked fetch)', () => {
         );
     });
 
+    test('NPECandidates national and province', async () => {
+        mockJson([]);
+        await iec.NPECandidates(10, 42);
+        expect(await lastUrl()).toBe(
+            'https://example.test/api/v1/NPECandidates?ElectoralEventID=10&PartyID=42'
+        );
+
+        await iec.NPECandidatesProvince(10, 2, 42);
+        expect(await lastUrl()).toBe(
+            'https://example.test/api/v1/NPECandidates?ElectoralEventID=10&ProvinceID=2&PartyID=42'
+        );
+    });
+
     test('LGECandidates ward and municipality', async () => {
         mockJson([]);
         await iec.LGECandidatesByWard(10, 400);
