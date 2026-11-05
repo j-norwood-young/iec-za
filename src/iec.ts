@@ -379,6 +379,61 @@ export function buildEndpoint(path: string, params?: IECQueryParams): string {
 /** Refresh slightly before the token's stated expiry to avoid race with the server clock. */
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 
+/** Default retries after a 429/503 before giving up. */
+const DEFAULT_MAX_RATE_LIMIT_RETRIES = 5;
+/** Base delay for exponential backoff (attempt 0 → ~this many ms before jitter). */
+const RATE_LIMIT_BASE_DELAY_MS = 500;
+/** Cap on backoff delay so a long Retry-After still wins when larger. */
+const RATE_LIMIT_MAX_DELAY_MS = 30_000;
+/** Soft per-process concurrency cap — many replicas still share one IEC quota. */
+const DEFAULT_MAX_CONCURRENT_REQUESTS = 6;
+
+function envInt(name: string, fallback: number): number {
+    const raw = process.env[name];
+    if (raw === undefined || raw === '') return fallback;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/**
+ * Parse a Retry-After header (delta-seconds or HTTP-date) to a wait in ms.
+ * Returns null when missing or unparseable.
+ */
+export function parseRetryAfterMs(header: string | null | undefined): number | null {
+    if (!header) return null;
+    const trimmed = header.trim();
+    if (!trimmed) return null;
+    if (/^\d+$/.test(trimmed)) {
+        return Number.parseInt(trimmed, 10) * 1000;
+    }
+    const when = Date.parse(trimmed);
+    if (Number.isNaN(when)) return null;
+    return Math.max(0, when - Date.now());
+}
+
+/**
+ * Delay before the next attempt. Prefers Retry-After when present, otherwise
+ * exponential backoff with full jitter so multi-replica startups desynchronize.
+ */
+export function rateLimitDelayMs(
+    attempt: number,
+    retryAfterMs: number | null = null,
+    random: () => number = Math.random
+): number {
+    const exp = Math.min(
+        RATE_LIMIT_MAX_DELAY_MS,
+        RATE_LIMIT_BASE_DELAY_MS * 2 ** Math.max(0, attempt)
+    );
+    const jittered = Math.floor(random() * (exp + 1));
+    if (retryAfterMs === null) return jittered;
+    // Honour server guidance, but keep a little jitter so replicas don't align.
+    return Math.max(retryAfterMs, 0) + Math.floor(random() * Math.min(250, exp + 1));
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class IEC {
     url: string;
     username: string;
@@ -388,10 +443,34 @@ export class IEC {
     /** Coalesces concurrent login/refresh attempts. */
     _loginInFlight: Promise<IECTokenResponse> | null = null;
     version: string;
+    maxRateLimitRetries: number;
+    maxConcurrentRequests: number;
+    /** Active GETs currently holding a concurrency slot (includes backoff waits). */
+    _activeRequests = 0;
+    _requestWaiters: Array<() => void> = [];
 
-    constructor({ username, password, url, version}: { username?: string, password?: string, url?: string, version?: string } = {}) {
+    constructor({
+        username,
+        password,
+        url,
+        version,
+        maxRateLimitRetries,
+        maxConcurrentRequests,
+    }: {
+        username?: string;
+        password?: string;
+        url?: string;
+        version?: string;
+        maxRateLimitRetries?: number;
+        maxConcurrentRequests?: number;
+    } = {}) {
         this.url = url || process.env.IEC_URL || "https://api.elections.org.za";
         this.version = version || "v1";
+        this.maxRateLimitRetries =
+            maxRateLimitRetries ?? envInt('IEC_MAX_RETRIES', DEFAULT_MAX_RATE_LIMIT_RETRIES);
+        this.maxConcurrentRequests =
+            maxConcurrentRequests ??
+            envInt('IEC_MAX_CONCURRENT', DEFAULT_MAX_CONCURRENT_REQUESTS);
         if (!username && process.env.IEC_USERNAME) {
             username = process.env.IEC_USERNAME;
         }
@@ -403,6 +482,25 @@ export class IEC {
         }
         this.username = username;
         this.password = password;
+    }
+
+    private async acquireRequestSlot(): Promise<void> {
+        if (this.maxConcurrentRequests <= 0) return;
+        if (this._activeRequests < this.maxConcurrentRequests) {
+            this._activeRequests += 1;
+            return;
+        }
+        await new Promise<void>((resolve) => {
+            this._requestWaiters.push(resolve);
+        });
+        this._activeRequests += 1;
+    }
+
+    private releaseRequestSlot(): void {
+        if (this.maxConcurrentRequests <= 0) return;
+        this._activeRequests = Math.max(0, this._activeRequests - 1);
+        const next = this._requestWaiters.shift();
+        if (next) next();
     }
 
     isTokenValid(token: IECTokenResponse | undefined = this._token): boolean {
@@ -514,7 +612,28 @@ export class IEC {
         }
     }
 
-    async get(endpoint: string, { retryOnAuthFailure = true }: { retryOnAuthFailure?: boolean } = {}): Promise<IECResponse> {
+    async get(
+        endpoint: string,
+        {
+            retryOnAuthFailure = true,
+            rateLimitAttempt = 0,
+        }: { retryOnAuthFailure?: boolean; rateLimitAttempt?: number } = {}
+    ): Promise<IECResponse> {
+        await this.acquireRequestSlot();
+        try {
+            return await this.getWithRetries(endpoint, { retryOnAuthFailure, rateLimitAttempt });
+        } finally {
+            this.releaseRequestSlot();
+        }
+    }
+
+    private async getWithRetries(
+        endpoint: string,
+        {
+            retryOnAuthFailure = true,
+            rateLimitAttempt = 0,
+        }: { retryOnAuthFailure?: boolean; rateLimitAttempt?: number }
+    ): Promise<IECResponse> {
         await this.ensureLoggedIn();
         if (!this._token?.access_token) {
             throw new Error("Not logged in");
@@ -542,9 +661,25 @@ export class IEC {
                     };
                 }
                 await this.login();
-                return this.get(endpoint, { retryOnAuthFailure: false });
+                // Stay inside the held concurrency slot for the auth retry.
+                return this.getWithRetries(endpoint, {
+                    retryOnAuthFailure: false,
+                    rateLimitAttempt,
+                });
             }
             throw new Error(`Request failed: ${response.status} ${response.statusText} (${endpoint})`);
+        }
+        if (response.status === 429 || response.status === 503) {
+            if (rateLimitAttempt >= this.maxRateLimitRetries) {
+                throw new Error(`Request failed: ${response.status} ${response.statusText} (${endpoint})`);
+            }
+            const retryAfterMs = parseRetryAfterMs(response.headers?.get?.('Retry-After'));
+            const delayMs = rateLimitDelayMs(rateLimitAttempt, retryAfterMs);
+            await sleep(delayMs);
+            return this.getWithRetries(endpoint, {
+                retryOnAuthFailure,
+                rateLimitAttempt: rateLimitAttempt + 1,
+            });
         }
         if (!response.ok) {
             throw new Error(`Request failed: ${response.status} ${response.statusText} (${endpoint})`);

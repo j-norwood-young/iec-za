@@ -1,5 +1,43 @@
 import { describe, expect, test, beforeEach, afterEach, jest } from '@jest/globals';
-import { buildQuery, buildEndpoint, IEC } from '../src/iec';
+import {
+    buildQuery,
+    buildEndpoint,
+    IEC,
+    parseRetryAfterMs,
+    rateLimitDelayMs,
+} from '../src/iec';
+
+describe('parseRetryAfterMs / rateLimitDelayMs', () => {
+    test('parseRetryAfterMs reads delta-seconds', () => {
+        expect(parseRetryAfterMs('2')).toBe(2000);
+        expect(parseRetryAfterMs('0')).toBe(0);
+    });
+
+    test('parseRetryAfterMs reads HTTP-date', () => {
+        const when = new Date(Date.now() + 5_000).toUTCString();
+        const ms = parseRetryAfterMs(when);
+        expect(ms).not.toBeNull();
+        expect(ms!).toBeGreaterThan(0);
+        expect(ms!).toBeLessThanOrEqual(5_000);
+    });
+
+    test('parseRetryAfterMs returns null for missing/invalid', () => {
+        expect(parseRetryAfterMs(null)).toBeNull();
+        expect(parseRetryAfterMs('')).toBeNull();
+        expect(parseRetryAfterMs('soon')).toBeNull();
+    });
+
+    test('rateLimitDelayMs uses Retry-After when larger than backoff', () => {
+        expect(rateLimitDelayMs(0, 5_000, () => 0)).toBe(5_000);
+    });
+
+    test('rateLimitDelayMs applies full jitter without Retry-After', () => {
+        expect(rateLimitDelayMs(0, null, () => 0)).toBe(0);
+        // full jitter uses `floor(random * (exp + 1))`, so random=1 → exp
+        expect(rateLimitDelayMs(0, null, () => 1)).toBe(501);
+        expect(rateLimitDelayMs(3, null, () => 1)).toBe(4_001);
+    });
+});
 
 describe('buildQuery / buildEndpoint', () => {
     test('buildQuery skips undefined and null', () => {
@@ -55,15 +93,46 @@ describe('IEC URL construction (mocked fetch)', () => {
         global.fetch = originalFetch;
     });
 
-    function mockJson(body: unknown, ok = true, status = 200) {
+    function mockJson(
+        body: unknown,
+        ok = true,
+        status = 200,
+        headers: Record<string, string> = {}
+    ) {
         const payload = JSON.stringify(body);
+        const headerMap = new Map(
+            Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])
+        );
         fetchMock.mockResolvedValue({
             ok,
             status,
             statusText: ok ? 'OK' : 'Error',
+            headers: {
+                get: (name: string) => headerMap.get(name.toLowerCase()) ?? null,
+            },
             text: async () => payload,
             json: async () => body,
-        } as Response);
+        } as unknown as Response);
+    }
+
+    function mockStatus(
+        status: number,
+        statusText: string,
+        headers: Record<string, string> = {}
+    ) {
+        const headerMap = new Map(
+            Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])
+        );
+        fetchMock.mockResolvedValueOnce({
+            ok: false,
+            status,
+            statusText,
+            headers: {
+                get: (name: string) => headerMap.get(name.toLowerCase()) ?? null,
+            },
+            text: async () => '',
+            json: async () => ({}),
+        } as unknown as Response);
     }
 
     async function lastUrl(): Promise<string> {
@@ -250,6 +319,74 @@ describe('IEC URL construction (mocked fetch)', () => {
     test('get throws on HTTP error', async () => {
         mockJson({}, false, 500);
         await expect(iec.get('ElectoralEvent')).rejects.toThrow(/Request failed: 500/);
+    });
+
+    test('get retries after 429 Too Many Requests', async () => {
+        const setTimeoutSpy = jest
+            .spyOn(global, 'setTimeout')
+            .mockImplementation(((fn: TimerHandler) => {
+                if (typeof fn === 'function') fn();
+                return 0 as unknown as NodeJS.Timeout;
+            }) as typeof setTimeout);
+
+        mockStatus(429, 'Too Many Requests', { 'Retry-After': '0' });
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: { get: () => null },
+            text: async () => JSON.stringify({ ok: true }),
+            json: async () => ({ ok: true }),
+        } as unknown as Response);
+
+        await expect(iec.get('LGEBallotResults?ElectoralEventID=1')).resolves.toEqual({
+            ok: true,
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        setTimeoutSpy.mockRestore();
+    });
+
+    test('get retries after 503 then succeeds', async () => {
+        const setTimeoutSpy = jest
+            .spyOn(global, 'setTimeout')
+            .mockImplementation(((fn: TimerHandler) => {
+                if (typeof fn === 'function') fn();
+                return 0 as unknown as NodeJS.Timeout;
+            }) as typeof setTimeout);
+
+        mockStatus(503, 'Service Unavailable');
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: { get: () => null },
+            text: async () => JSON.stringify({ ok: true }),
+            json: async () => ({ ok: true }),
+        } as unknown as Response);
+
+        await expect(iec.get('ElectoralEvent')).resolves.toEqual({ ok: true });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        setTimeoutSpy.mockRestore();
+    });
+
+    test('get gives up after exhausting 429 retries', async () => {
+        const setTimeoutSpy = jest
+            .spyOn(global, 'setTimeout')
+            .mockImplementation(((fn: TimerHandler) => {
+                if (typeof fn === 'function') fn();
+                return 0 as unknown as NodeJS.Timeout;
+            }) as typeof setTimeout);
+
+        iec.maxRateLimitRetries = 2;
+        for (let i = 0; i < 3; i++) {
+            mockStatus(429, 'Too Many Requests', { 'Retry-After': '0' });
+        }
+
+        await expect(iec.get('ElectoralEvent')).rejects.toThrow(
+            /Request failed: 429 Too Many Requests/
+        );
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        setTimeoutSpy.mockRestore();
     });
 
     test('get throws on Message field', async () => {

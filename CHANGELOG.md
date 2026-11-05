@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-11-05
+
+### Fixed
+
+- `429` / `503` responses are retried with exponential backoff, full jitter, and `Retry-After` support so multi-replica startups recover instead of failing hard
+- In-process GET concurrency is capped (default 6; `IEC_MAX_CONCURRENT`) to reduce stampedes from a single client
+
+### Added
+
+- `IEC_MAX_RETRIES` / constructor `maxRateLimitRetries` to tune rate-limit retry budget (default 5)
+- Exported `parseRetryAfterMs` and `rateLimitDelayMs` helpers
+
 ## [0.4.1] - 2026-10-02
 
 ### Fixed
