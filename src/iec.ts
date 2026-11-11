@@ -387,6 +387,38 @@ const RATE_LIMIT_BASE_DELAY_MS = 500;
 const RATE_LIMIT_MAX_DELAY_MS = 30_000;
 /** Soft per-process concurrency cap — many replicas still share one IEC quota. */
 const DEFAULT_MAX_CONCURRENT_REQUESTS = 6;
+/** Abort a request IEC has not answered within this long. 0 disables the timeout. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+/** Details passed to `onRateLimited` each time IEC answers 429 or 503. */
+export type IECRateLimitInfo = {
+    status: number;
+    endpoint: string;
+    /** Wait IEC asked for in its Retry-After header, or null when it gave none. */
+    retryAfterMs: number | null;
+    /** 0 for the first attempt. */
+    attempt: number;
+    /** True when this response will be retried, false when it is about to be thrown. */
+    willRetry: boolean;
+};
+
+/**
+ * A failed IEC request. `status` is the HTTP status, and `retryAfterMs` is IEC's
+ * Retry-After for a 429/503. The message keeps the `Request failed: <status> …` form.
+ */
+export class IECRequestError extends Error {
+    readonly status: number;
+    readonly endpoint: string;
+    readonly retryAfterMs: number | null;
+
+    constructor(status: number, statusText: string, endpoint: string, retryAfterMs: number | null = null) {
+        super(`Request failed: ${status} ${statusText} (${endpoint})`);
+        this.name = 'IECRequestError';
+        this.status = status;
+        this.endpoint = endpoint;
+        this.retryAfterMs = retryAfterMs;
+    }
+}
 
 function envInt(name: string, fallback: number): number {
     const raw = process.env[name];
@@ -445,6 +477,8 @@ export class IEC {
     version: string;
     maxRateLimitRetries: number;
     maxConcurrentRequests: number;
+    requestTimeoutMs: number;
+    onRateLimited: ((info: IECRateLimitInfo) => void | Promise<void>) | undefined;
     /** Active GETs currently holding a concurrency slot (includes backoff waits). */
     _activeRequests = 0;
     _requestWaiters: Array<() => void> = [];
@@ -456,6 +490,8 @@ export class IEC {
         version,
         maxRateLimitRetries,
         maxConcurrentRequests,
+        requestTimeoutMs,
+        onRateLimited,
     }: {
         username?: string;
         password?: string;
@@ -463,6 +499,10 @@ export class IEC {
         version?: string;
         maxRateLimitRetries?: number;
         maxConcurrentRequests?: number;
+        /** Abort requests IEC has not answered in this many ms. 0 disables. Env `IEC_REQUEST_TIMEOUT_MS`. */
+        requestTimeoutMs?: number;
+        /** Called on every 429/503, so callers can share IEC's Retry-After across processes. */
+        onRateLimited?: (info: IECRateLimitInfo) => void | Promise<void>;
     } = {}) {
         this.url = url || process.env.IEC_URL || "https://api.elections.org.za";
         this.version = version || "v1";
@@ -471,6 +511,9 @@ export class IEC {
         this.maxConcurrentRequests =
             maxConcurrentRequests ??
             envInt('IEC_MAX_CONCURRENT', DEFAULT_MAX_CONCURRENT_REQUESTS);
+        this.requestTimeoutMs =
+            requestTimeoutMs ?? envInt('IEC_REQUEST_TIMEOUT_MS', DEFAULT_REQUEST_TIMEOUT_MS);
+        this.onRateLimited = onRateLimited;
         if (!username && process.env.IEC_USERNAME) {
             username = process.env.IEC_USERNAME;
         }
@@ -514,6 +557,10 @@ export class IEC {
         return expiresAt - TOKEN_EXPIRY_SKEW_MS > Date.now();
     }
 
+    private timeoutSignal(): AbortSignal | undefined {
+        return this.requestTimeoutMs > 0 ? AbortSignal.timeout(this.requestTimeoutMs) : undefined;
+    }
+
     clearAuth() {
         this._token = undefined;
         this._loggedIn = false;
@@ -525,7 +572,8 @@ export class IEC {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: new URLSearchParams(body)
+            body: new URLSearchParams(body),
+            signal: this.timeoutSignal(),
         });
         if (!response.ok) {
             throw new Error(`Login failed: ${response.status} ${response.statusText}`);
@@ -642,7 +690,8 @@ export class IEC {
         const response = await fetch(url, {
             headers: {
                 'Authorization': `Bearer ${this._token.access_token}`
-            }
+            },
+            signal: this.timeoutSignal(),
         });
         if (response.status === 401 || response.status === 403) {
             if (retryOnAuthFailure) {
@@ -667,13 +716,25 @@ export class IEC {
                     rateLimitAttempt,
                 });
             }
-            throw new Error(`Request failed: ${response.status} ${response.statusText} (${endpoint})`);
+            throw new IECRequestError(response.status, response.statusText, endpoint);
         }
         if (response.status === 429 || response.status === 503) {
-            if (rateLimitAttempt >= this.maxRateLimitRetries) {
-                throw new Error(`Request failed: ${response.status} ${response.statusText} (${endpoint})`);
-            }
             const retryAfterMs = parseRetryAfterMs(response.headers?.get?.('Retry-After'));
+            const willRetry = rateLimitAttempt < this.maxRateLimitRetries;
+            try {
+                await this.onRateLimited?.({
+                    status: response.status,
+                    endpoint,
+                    retryAfterMs,
+                    attempt: rateLimitAttempt,
+                    willRetry,
+                });
+            } catch {
+                // A failing hook must not change how the request itself is handled.
+            }
+            if (!willRetry) {
+                throw new IECRequestError(response.status, response.statusText, endpoint, retryAfterMs);
+            }
             const delayMs = rateLimitDelayMs(rateLimitAttempt, retryAfterMs);
             await sleep(delayMs);
             return this.getWithRetries(endpoint, {
@@ -682,7 +743,7 @@ export class IEC {
             });
         }
         if (!response.ok) {
-            throw new Error(`Request failed: ${response.status} ${response.statusText} (${endpoint})`);
+            throw new IECRequestError(response.status, response.statusText, endpoint);
         }
         const text = await response.text();
         if (!text || !text.trim()) {

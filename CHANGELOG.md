@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-11
+
+### Added
+
+- `onRateLimited` constructor option, called on every `429`/`503` with the status, endpoint, attempt, whether it will retry, and IEC's `Retry-After` as `retryAfterMs`
+- `IECRequestError` for failed requests, with `status`, `endpoint` and `retryAfterMs`. Messages keep the `Request failed: <status> …` form
+- Requests time out after 30 seconds (`IEC_REQUEST_TIMEOUT_MS` / `requestTimeoutMs`; `0` disables). Before, an unanswered request could wait about 5 minutes
+
 ## [0.4.2] - 2026-11-05
 
 ### Fixed

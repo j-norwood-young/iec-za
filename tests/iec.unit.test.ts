@@ -3,6 +3,7 @@ import {
     buildQuery,
     buildEndpoint,
     IEC,
+    IECRequestError,
     parseRetryAfterMs,
     rateLimitDelayMs,
 } from '../src/iec';
@@ -387,6 +388,54 @@ describe('IEC URL construction (mocked fetch)', () => {
         );
         expect(fetchMock).toHaveBeenCalledTimes(3);
         setTimeoutSpy.mockRestore();
+    });
+
+    test('a 429 with no retries left throws IECRequestError carrying Retry-After', async () => {
+        iec.maxRateLimitRetries = 0;
+        mockStatus(429, 'Too Many Requests', { 'Retry-After': '207' });
+
+        const err = await iec.get('ElectoralEvent').catch((e: unknown) => e);
+
+        expect(err).toBeInstanceOf(IECRequestError);
+        expect(err).toMatchObject({ status: 429, retryAfterMs: 207_000, endpoint: 'ElectoralEvent' });
+        expect((err as Error).message).toMatch(/Request failed: 429 Too Many Requests/);
+    });
+
+    test('onRateLimited sees every 429, and a throwing hook does not break the request', async () => {
+        const setTimeoutSpy = jest
+            .spyOn(global, 'setTimeout')
+            .mockImplementation(((fn: TimerHandler) => {
+                if (typeof fn === 'function') fn();
+                return 0 as unknown as NodeJS.Timeout;
+            }) as typeof setTimeout);
+        const seen: unknown[] = [];
+        iec.maxRateLimitRetries = 1;
+        iec.onRateLimited = (info) => {
+            seen.push(info);
+            throw new Error('hook failed');
+        };
+        mockStatus(429, 'Too Many Requests', { 'Retry-After': '3' });
+        mockStatus(429, 'Too Many Requests');
+
+        await expect(iec.get('ElectoralEvent')).rejects.toBeInstanceOf(IECRequestError);
+
+        expect(seen).toEqual([
+            { status: 429, endpoint: 'ElectoralEvent', retryAfterMs: 3_000, attempt: 0, willRetry: true },
+            { status: 429, endpoint: 'ElectoralEvent', retryAfterMs: null, attempt: 1, willRetry: false },
+        ]);
+        setTimeoutSpy.mockRestore();
+    });
+
+    test('get passes an abort signal when a request timeout is set', async () => {
+        mockJson({ ok: true });
+        await iec.get('ElectoralEvent');
+        const [, init] = fetchMock.mock.calls[0]!;
+        expect(init?.signal).toBeInstanceOf(AbortSignal);
+
+        iec.requestTimeoutMs = 0;
+        await iec.get('ElectoralEvent');
+        const [, noTimeout] = fetchMock.mock.calls[1]!;
+        expect(noTimeout?.signal).toBeUndefined();
     });
 
     test('get throws on Message field', async () => {
