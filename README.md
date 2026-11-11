@@ -41,6 +41,7 @@ IEC_PASSWORD="password"
 IEC_URL="https://api.elections.org.za" # Optional
 IEC_MAX_RETRIES="5"                    # Optional: 429/503 retry budget
 IEC_MAX_CONCURRENT="6"                 # Optional: in-flight GET cap per client
+IEC_REQUEST_TIMEOUT_MS="30000"         # Optional: abort unanswered requests (0 disables)
 ```
 
 You can also set the environment variables directly.
@@ -91,6 +92,9 @@ For more information on the methods, please refer to the [IEC API documentation]
 - Ensures a valid token before each request; on `401`/`403`, re-authenticates once and retries.
 - On `429`/`503`, retries with exponential backoff, full jitter, and `Retry-After` when present (default 5 attempts; override with `IEC_MAX_RETRIES` or constructor `maxRateLimitRetries`).
 - Caps in-flight GETs per client instance (default 6; `IEC_MAX_CONCURRENT` / constructor `maxConcurrentRequests`) so one process does not stampede the shared IEC quota.
+- IEC allows about 10,000 requests per hour per client. Pass `onRateLimited` to the constructor to hear about every `429`/`503`, with IEC's `Retry-After` in `retryAfterMs`, so several processes can back off together.
+- Failed requests throw `IECRequestError`, which carries `status`, `endpoint` and, for `429`/`503`, `retryAfterMs`.
+- Requests IEC has not answered within 30 seconds are aborted (`IEC_REQUEST_TIMEOUT_MS` / constructor `requestTimeoutMs`; `0` disables).
 - Prefer the typed methods below.
 
 ### Electoral events & progress
